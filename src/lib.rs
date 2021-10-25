@@ -1,25 +1,46 @@
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+
+type Pixel = bool;
+type Image = Vec<Vec<Pixel>>;
+type TileId = u64;
+type Border = u16;
+
+fn char_to_pixel(c: char) -> Pixel {
+    match c {
+        '#' => true,
+        '.' => false,
+        c => panic!("Unknown character {}", c),
+    }
+}
+
+fn str_to_image_row(s: &str) -> Vec<Pixel> {
+    s.chars().map(char_to_pixel).collect()
+}
+
+fn strs_to_image<'a>(s: impl IntoIterator<Item = &'a str>) -> Image {
+    s.into_iter().map(str_to_image_row).collect()
+}
+
+fn bools_to_border(it: impl IntoIterator<Item = bool>) -> Border {
+    it.into_iter().fold(0, |mut accu, b| {
+        accu *= 2;
+        if b {
+            accu += 1;
+        }
+        accu
+    })
+}
+
 #[derive(Clone, Debug)]
 pub struct Tile {
-    id: u64,
-    borders: [u64; 4],
-    image: Vec<String>,
-    neighbors: HashSet<u64>,
+    id: TileId,
+    borders: [Border; 4],
+    neighbors: Vec<TileId>,
+    image: Image,
 }
 impl Tile {
-    fn chars_to_u64(s: impl Iterator<Item = char>) -> u64 {
-        s.fold(0, |mut accu, c| {
-            accu *= 2;
-            if c == '#' {
-                accu += 1;
-            } else {
-                assert!(c == '.');
-            }
-            accu
-        })
-    }
     fn new(s: &[&str]) -> Self {
         lazy_static! {
             static ref TITLE_RE: Regex = Regex::new(r"^\s*Tile (\d*):\s*$").unwrap();
@@ -27,21 +48,20 @@ impl Tile {
         let title_line = s[0];
         let cap = &TITLE_RE.captures(title_line).unwrap()[1];
         let id = cap.parse::<u64>().unwrap();
-        let image: Vec<_> = s[1..].iter().map(|s| s.to_string()).collect();
-        let border1 = Self::chars_to_u64(image[0].chars());
-        let border2 = Self::chars_to_u64(image.iter().map(|x| x.chars().next().unwrap()));
-        let border3 = Self::chars_to_u64(image.last().unwrap().chars().rev());
-        let border4 =
-            Self::chars_to_u64(image.iter().map(|x| x.chars().rev().next().unwrap()).rev());
+        let image: Image = strs_to_image(s[1..].iter().copied());
+        let border1 = bools_to_border(image[0].iter().copied());
+        let border2 = bools_to_border(image.iter().map(|x| *x.last().unwrap()));
+        let border3 = bools_to_border(image.last().unwrap().iter().copied().rev());
+        let border4 = bools_to_border(image.iter().map(|x| x[0]).rev());
         let border = [border1, border2, border3, border4];
         Self {
             id,
             image,
             borders: border,
-            neighbors: HashSet::new(),
+            neighbors: Default::default(),
         }
     }
-    fn borders<'a>(&'a self) -> impl Iterator<Item = u64> + 'a {
+    fn borders_candidates<'a>(&'a self) -> impl Iterator<Item = Border> + 'a {
         self.borders
             .iter()
             .copied()
@@ -71,7 +91,7 @@ pub fn input_to_tiles<'a>(s: &'a str) -> impl Iterator<Item = Tile> + 'a {
     sep_empty_line(s.lines()).map(|v| Tile::new(&v))
 }
 
-fn complement(mut i: u64) -> u64 {
+fn complement(mut i: Border) -> Border {
     let mut out = 0;
     for _ in 0..10 {
         out <<= 1;
@@ -108,7 +128,7 @@ fn connect_tiles(tile_by_id: &mut HashMap<u64, Tile>) {
         let mut s: HashMap<_, _> = HashMap::new();
         for (id, border) in tile_by_id
             .iter()
-            .flat_map(|(id, t)| t.borders().map(|x| (*id, x)))
+            .flat_map(|(id, t)| t.borders_candidates().map(|x| (*id, x)))
         {
             s.entry(border).or_insert(HashSet::new()).insert(id);
         }
@@ -117,7 +137,7 @@ fn connect_tiles(tile_by_id: &mut HashMap<u64, Tile>) {
     loop {
         fn add_neighbor(tile_map: &mut HashMap<u64, Tile>, lid: u64, rid: u64) -> usize {
             let l = tile_map.get_mut(&lid).unwrap();
-            l.neighbors.insert(rid);
+            l.neighbors.push(rid);
             return l.neighbors.len();
         }
         let mut done = true;
@@ -145,7 +165,7 @@ fn connect_tiles(tile_by_id: &mut HashMap<u64, Tile>) {
             border_to_id.remove(&b).unwrap();
         });
         tile_id_to_remove.into_iter().for_each(|tid| {
-            for border in tile_by_id[&tid].borders() {
+            for border in tile_by_id[&tid].borders_candidates() {
                 if let Some(s) = border_to_id.get_mut(&border) {
                     s.remove(&tid);
                 }
@@ -183,6 +203,26 @@ mod tests {
                 i
             )
         }
+    }
+    #[test]
+    fn test_border_seq() {
+        const TILE_IN: &str = r"Tile 2311:
+..##.#..#.
+##..#.....
+#...##..#.
+####.#...#
+##.##.###.
+##...#.###
+.#.#.#..##
+..#....#..
+###...#.#.
+..###..###";
+        let tile_in: Vec<_> = TILE_IN.lines().collect();
+        let tile = Tile::new(&tile_in);
+        assert_eq!(tile.borders[0], 0b0011010010);
+        assert_eq!(tile.borders[1], 0b0001011001);
+        assert_eq!(tile.borders[2], 0b1110011100);
+        assert_eq!(tile.borders[3], 0b0100111110);
     }
     const SAMPLE_IN: &str = r"Tile 2311:
 ..##.#..#.
