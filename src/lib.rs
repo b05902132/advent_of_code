@@ -92,6 +92,17 @@ impl Tile {
     fn neighbors(&self) -> impl Iterator<Item = TileId> {
         self.neighbors.clone().into_iter().filter_map(|x| x)
     }
+
+    fn match_adj_border(&mut self, direction: usize, target_border: Border) {
+        let my_target_border = complement(target_border);
+        if !self.borders.contains(&my_target_border) {
+            self.flip();
+        }
+        assert!(self.borders.contains(&my_target_border));
+        while self.borders[direction] != my_target_border {
+            self.rotate();
+        }
+    }
 }
 
 pub fn input_to_tiles<'a>(s: &'a str) -> impl Iterator<Item = Tile> + 'a {
@@ -127,24 +138,112 @@ fn complement(mut i: Border) -> Border {
 }
 
 pub struct SeaMap {
-    tile_by_id: HashMap<TileId, Tile>,
+    tiles: Vec<Vec<Tile>>,
     image: Vec<Vec<bool>>,
 }
 
 impl SeaMap {
+    pub fn from_str(s: &str) -> Self {
+        Self::new(input_to_tiles(s))
+    }
     pub fn new(tile: impl Iterator<Item = Tile>) -> Self {
         let mut tile_by_id: HashMap<_, _> = tile.map(|t| (t.id, t)).collect();
         connect_tiles(&mut tile_by_id);
-        Self {
-            tile_by_id,
-            image: Default::default(), //TODO
+        fn build_row(first_tile: Tile, tile_by_id: &mut HashMap<TileId, Tile>) -> Vec<Tile> {
+            let mut row = vec![];
+            let mut last_tile = first_tile;
+            while let (Some(next_id), last_border) = (last_tile.neighbors[1], last_tile.borders[1])
+            {
+                let mut next_tile = tile_by_id.remove(&next_id).unwrap();
+                let this_border = complement(last_border);
+                if !next_tile.borders.contains(&this_border) {
+                    next_tile.flip();
+                }
+                while next_tile.borders[3] != this_border {
+                    next_tile.rotate();
+                }
+                row.push(last_tile);
+                last_tile = next_tile;
+            }
+            row.push(last_tile);
+            row
         }
+        let lu_id = tile_by_id
+            .iter()
+            .find_map(|(id, t)| (t.neighbors().count() == 2).then(|| *id))
+            .unwrap();
+        let mut row_begin = tile_by_id.remove(&lu_id).unwrap();
+        while row_begin.neighbors[0].is_some() || row_begin.neighbors[3].is_some() {
+            row_begin.rotate();
+        }
+        let mut tiles = vec![];
+        loop {
+            let row = build_row(row_begin, &mut tile_by_id);
+            let next_row_begin_id = row[0].neighbors[2];
+            let prev_row_begin_down_border = row[0].borders[2];
+            tiles.push(row);
+            let mut next_row_begin = match next_row_begin_id {
+                None => break,
+                Some(id) => tile_by_id.remove(&id).unwrap(),
+            };
+            next_row_begin.match_adj_border(0, prev_row_begin_down_border);
+            row_begin = next_row_begin;
+        }
+        assert!(tile_by_id.is_empty());
+        let mut rows: Vec<Vec<Pixel>> = vec![];
+        fn trimmed_pixel_rows_from_tile(t: &Tile) -> impl Iterator<Item = &[Pixel]> {
+            let image = &t.image;
+            image[1..image.len() - 1]
+                .iter()
+                .map(|row| &row[1..row.len() - 1])
+        }
+        for tile_row in &tiles {
+            let mut pixel_row_iters: Vec<_> =
+                tile_row.iter().map(trimmed_pixel_rows_from_tile).collect();
+            let new_rows_iter = std::iter::from_fn(move || {
+                pixel_row_iters.iter_mut().map(|it| it.next()).try_fold(
+                    vec![],
+                    |mut accu: Vec<Pixel>, v: Option<&[Pixel]>| {
+                        accu.extend(v?);
+                        Some(accu)
+                    },
+                )
+            });
+            rows.extend(new_rows_iter)
+        }
+
+        Self { tiles, image: rows }
     }
     pub fn tiles(&self) -> impl Iterator<Item = &Tile> {
-        self.tile_by_id.values()
+        self.tiles.iter().flat_map(|i| i.iter())
     }
-    pub fn tiles_mut(&mut self) -> impl Iterator<Item = &mut Tile> {
-        self.tile_by_id.values_mut()
+
+    pub fn corners<'a>(&'a self) -> impl Iterator<Item = &'a Tile> + 'a {
+        std::iter::from_fn({
+            let (x_min, x_max) = (0, self.tiles.len() - 1);
+            let (y_min, y_max) = (0, self.tiles[0].len() - 1);
+            let pos = [
+                (x_min, y_min),
+                (x_min, y_max),
+                (x_max, y_min),
+                (x_max, y_max),
+            ];
+            let mut pos_iter = pos.into_iter();
+            move || {
+                let (x, y) = pos_iter.next()?;
+                Some(&self.tiles[x][y])
+            }
+        })
+    }
+
+    pub fn image_string(&self) -> String {
+        let mut out = String::new();
+        for row in self.image.iter() {
+            let row_chars = row.iter().copied().map(|p| if p { '#' } else { '.' });
+            out.extend(row_chars);
+            out.push('\n');
+        }
+        out
     }
 }
 
@@ -214,10 +313,7 @@ fn connect_tiles(tile_by_id: &mut HashMap<TileId, Tile>) {
 
 pub fn solve_1(s: &str) -> u64 {
     let sea_map = SeaMap::new(input_to_tiles(s));
-    sea_map
-        .tiles()
-        .filter_map(|t| (t.neighbors().count() == 2).then(|| t.id))
-        .product()
+    sea_map.corners().map(|t| t.id).product()
 }
 
 #[cfg(test)]
@@ -315,6 +411,11 @@ mod tests {
         tile.rotate();
         let target_tile = make_small_tile_rotated();
         assert_eq!(&tile.borders, &target_tile.borders)
+    }
+    #[test]
+    fn test_combine_image() {
+        let x = SeaMap::from_str(SAMPLE_IN);
+        print!("{}", x.image_string())
     }
     const SAMPLE_IN: &str = r"Tile 2311:
 ..##.#..#.
