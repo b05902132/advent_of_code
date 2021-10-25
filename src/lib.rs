@@ -47,7 +47,7 @@ impl Tile {
         };
         let title_line = s[0];
         let cap = &TITLE_RE.captures(title_line).unwrap()[1];
-        let id = cap.parse::<u64>().unwrap();
+        let id = cap.parse::<TileId>().unwrap();
         let image: Image = strs_to_image(s[1..].iter().copied());
         let border1 = bools_to_border(image[0].iter().copied());
         let border2 = bools_to_border(image.iter().map(|x| *x.last().unwrap()));
@@ -124,7 +124,7 @@ fn complement(mut i: Border) -> Border {
 }
 
 pub struct SeaMap {
-    tile_by_id: HashMap<u64, Tile>,
+    tile_by_id: HashMap<TileId, Tile>,
     image: Vec<Vec<bool>>,
 }
 
@@ -145,7 +145,7 @@ impl SeaMap {
     }
 }
 
-fn connect_tiles(tile_by_id: &mut HashMap<u64, Tile>) {
+fn connect_tiles(tile_by_id: &mut HashMap<TileId, Tile>) {
     let mut border_to_id = {
         let mut s: HashMap<_, _> = HashMap::new();
         for (id, border) in tile_by_id
@@ -157,7 +157,7 @@ fn connect_tiles(tile_by_id: &mut HashMap<u64, Tile>) {
         s
     };
     loop {
-        fn add_neighbor(tile_map: &mut HashMap<u64, Tile>, lid: u64, rid: u64) -> usize {
+        fn add_neighbor(tile_map: &mut HashMap<TileId, Tile>, lid: TileId, rid: TileId) -> usize {
             let l = tile_map.get_mut(&lid).unwrap();
             l.neighbors.push(rid);
             return l.neighbors.len();
