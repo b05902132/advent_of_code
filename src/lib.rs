@@ -67,6 +67,28 @@ impl Tile {
             .copied()
             .flat_map(|b| [b, complement(b)])
     }
+    fn flip(&mut self) {
+        self.image.reverse();
+        self.borders.swap(0, 2);
+        self.borders.iter_mut().for_each(|i| *i = complement(*i));
+    }
+    fn rotate(&mut self) {
+        // rotate clockwise
+        use std::{iter, mem};
+        let mut rows: Vec<_> = mem::take(&mut self.image)
+            .into_iter()
+            .rev()
+            .map(|row| row.into_iter())
+            .collect();
+        self.image = iter::from_fn(move || rows.iter_mut().map(|r| r.next()).collect()).collect();
+        let new_borders = [
+            self.borders[3],
+            self.borders[0],
+            self.borders[1],
+            self.borders[2],
+        ];
+        self.borders = new_borders;
+    }
 }
 
 pub fn input_to_tiles<'a>(s: &'a str) -> impl Iterator<Item = Tile> + 'a {
@@ -204,9 +226,7 @@ mod tests {
             )
         }
     }
-    #[test]
-    fn test_border_seq() {
-        const TILE_IN: &str = r"Tile 2311:
+    const SAMPLE_TILE: &str = r"Tile 2311:
 ..##.#..#.
 ##..#.....
 #...##..#.
@@ -217,12 +237,71 @@ mod tests {
 ..#....#..
 ###...#.#.
 ..###..###";
-        let tile_in: Vec<_> = TILE_IN.lines().collect();
-        let tile = Tile::new(&tile_in);
+    fn make_sample_tile() -> Tile {
+        let lines: Vec<_> = SAMPLE_TILE.lines().collect();
+        Tile::new(&lines)
+    }
+
+    #[test]
+    fn test_border_seq() {
+        let tile = make_sample_tile();
         assert_eq!(tile.borders[0], 0b0011010010);
         assert_eq!(tile.borders[1], 0b0001011001);
         assert_eq!(tile.borders[2], 0b1110011100);
         assert_eq!(tile.borders[3], 0b0100111110);
+    }
+
+    #[test]
+    fn test_border_flip() {
+        let mut tile = make_sample_tile();
+        tile.flip();
+        assert_eq!(tile.borders[0], 0b0011100111);
+        assert_eq!(tile.borders[1], 0b1001101000);
+        assert_eq!(tile.borders[2], 0b0100101100);
+        assert_eq!(tile.borders[3], 0b0111110010);
+    }
+    #[test]
+    fn test_border_rotate() {
+        let mut tile = make_sample_tile();
+        tile.rotate();
+        assert_eq!(tile.borders[0], 0b0100111110);
+        assert_eq!(tile.borders[1], 0b0011010010);
+        assert_eq!(tile.borders[2], 0b0001011001);
+        assert_eq!(tile.borders[3], 0b1110011100);
+    }
+    fn make_small_tile() -> Tile {
+        const TILE: &str = r"Tile 0:
+..#.
+#.##
+####
+#...
+";
+        let lines: Vec<_> = TILE.lines().collect();
+        Tile::new(&lines)
+    }
+    fn make_small_tile_rotated() -> Tile {
+        const TILE: &str = r"Tile 0:
+###.
+.#..
+.###
+.##.
+";
+        let lines: Vec<_> = TILE.lines().collect();
+        Tile::new(&lines)
+    }
+    #[test]
+    fn test_rotate_image() {
+        let mut tile = make_small_tile();
+        tile.rotate();
+        let target_tile = make_small_tile_rotated();
+        assert_eq!(&tile.image, &target_tile.image)
+    }
+    #[test]
+    fn test_rotate_border_consistent() {
+        let mut tile = make_small_tile();
+        tile.rotate();
+        let target_tile = make_small_tile_rotated();
+        assert_eq!(&tile.borders, &target_tile.borders)
     }
     const SAMPLE_IN: &str = r"Tile 2311:
 ..##.#..#.
