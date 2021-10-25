@@ -37,7 +37,7 @@ fn bools_to_border(it: impl IntoIterator<Item = bool>) -> Border {
 pub struct Tile {
     id: TileId,
     borders: [Border; 4],
-    neighbors: Vec<TileId>,
+    neighbors: [Option<TileId>; 4],
     image: Image,
 }
 impl Tile {
@@ -61,17 +61,21 @@ impl Tile {
             neighbors: Default::default(),
         }
     }
-    fn borders_candidates<'a>(&'a self) -> impl Iterator<Item = Border> + 'a {
+
+    fn borders_candidates(&self) -> impl Iterator<Item = Border> {
         self.borders
-            .iter()
-            .copied()
+            .clone()
+            .into_iter()
             .flat_map(|b| [b, complement(b)])
     }
+
     fn flip(&mut self) {
         self.image.reverse();
         self.borders.swap(0, 2);
+        self.neighbors.swap(0, 2);
         self.borders.iter_mut().for_each(|i| *i = complement(*i));
     }
+
     fn rotate(&mut self) {
         // rotate clockwise
         use std::{iter, mem};
@@ -81,13 +85,12 @@ impl Tile {
             .map(|row| row.into_iter())
             .collect();
         self.image = iter::from_fn(move || rows.iter_mut().map(|r| r.next()).collect()).collect();
-        let new_borders = [
-            self.borders[3],
-            self.borders[0],
-            self.borders[1],
-            self.borders[2],
-        ];
-        self.borders = new_borders;
+        self.borders.rotate_right(1);
+        self.neighbors.rotate_right(1);
+    }
+
+    fn neighbors(&self) -> impl Iterator<Item = TileId> {
+        self.neighbors.clone().into_iter().filter_map(|x| x)
     }
 }
 
@@ -157,10 +160,20 @@ fn connect_tiles(tile_by_id: &mut HashMap<TileId, Tile>) {
         s
     };
     loop {
-        fn add_neighbor(tile_map: &mut HashMap<TileId, Tile>, lid: TileId, rid: TileId) -> usize {
+        fn add_neighbor(
+            tile_map: &mut HashMap<TileId, Tile>,
+            lid: TileId,
+            lborder: Border,
+            rid: TileId,
+        ) -> usize {
             let l = tile_map.get_mut(&lid).unwrap();
-            l.neighbors.push(rid);
-            return l.neighbors.len();
+            let border_idx = l
+                .borders
+                .iter()
+                .position(|&p| p == lborder || complement(p) == lborder)
+                .unwrap();
+            l.neighbors[border_idx] = Some(rid);
+            return l.neighbors().count();
         }
         let mut done = true;
         let mut border_to_remove = HashSet::new();
@@ -173,8 +186,8 @@ fn connect_tiles(tile_by_id: &mut HashMap<TileId, Tile>) {
             let mut id_iter = ids.iter();
             let lid = *id_iter.next().unwrap();
             let rid = *id_iter.next().unwrap();
-            let l_neighbor_count = add_neighbor(tile_by_id, lid, rid);
-            let r_neighbor_count = add_neighbor(tile_by_id, rid, lid);
+            let l_neighbor_count = add_neighbor(tile_by_id, lid, border, rid);
+            let r_neighbor_count = add_neighbor(tile_by_id, rid, border, lid);
             border_to_remove.extend([border, complement(border)]);
             if l_neighbor_count == 4 {
                 tile_id_to_remove.insert(lid);
@@ -203,7 +216,7 @@ pub fn solve_1(s: &str) -> u64 {
     let sea_map = SeaMap::new(input_to_tiles(s));
     sea_map
         .tiles()
-        .filter_map(|t| (t.neighbors.len() == 2).then(|| t.id))
+        .filter_map(|t| (t.neighbors().count() == 2).then(|| t.id))
         .product()
 }
 
