@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 pub struct Tile {
     id: u64,
     borders: [u64; 4],
+    image: Vec<String>,
     neighbors: HashSet<u64>,
 }
 impl Tile {
@@ -26,7 +27,7 @@ impl Tile {
         let title_line = s[0];
         let cap = &TITLE_RE.captures(title_line).unwrap()[1];
         let id = cap.parse::<u64>().unwrap();
-        let image = &s[1..];
+        let image: Vec<_> = s[1..].iter().map(|s| s.to_string()).collect();
         let border1 = Self::chars_to_u64(image[0].chars());
         let border2 = Self::chars_to_u64(image.iter().map(|x| x.chars().next().unwrap()));
         let border3 = Self::chars_to_u64(image.last().unwrap().chars().rev());
@@ -35,6 +36,7 @@ impl Tile {
         let border = [border1, border2, border3, border4];
         Self {
             id,
+            image,
             borders: border,
             neighbors: HashSet::new(),
         }
@@ -79,8 +81,29 @@ fn complement(mut i: u64) -> u64 {
     out
 }
 
-pub fn solve(s: &str) -> u64 {
-    let mut tile_by_id: HashMap<_, _> = input_to_tiles(s).map(|t| (t.id, t)).collect();
+pub struct SeaMap {
+    tile_by_id: HashMap<u64, Tile>,
+    image: Vec<Vec<bool>>,
+}
+
+impl SeaMap {
+    pub fn new(tile: impl Iterator<Item = Tile>) -> Self {
+        let mut tile_by_id: HashMap<_, _> = tile.map(|t| (t.id, t)).collect();
+        connect_tiles(&mut tile_by_id);
+        Self {
+            tile_by_id,
+            image: Default::default(), //TODO
+        }
+    }
+    pub fn tiles(&self) -> impl Iterator<Item = &Tile> {
+        self.tile_by_id.values()
+    }
+    pub fn tiles_mut(&mut self) -> impl Iterator<Item = &mut Tile> {
+        self.tile_by_id.values_mut()
+    }
+}
+
+fn connect_tiles(tile_by_id: &mut HashMap<u64, Tile>) {
     let mut border_to_id = {
         let mut s: HashMap<_, _> = HashMap::new();
         for (id, border) in tile_by_id
@@ -108,8 +131,8 @@ pub fn solve(s: &str) -> u64 {
             let mut id_iter = ids.iter();
             let lid = *id_iter.next().unwrap();
             let rid = *id_iter.next().unwrap();
-            let l_neighbor_count = add_neighbor(&mut tile_by_id, lid, rid);
-            let r_neighbor_count = add_neighbor(&mut tile_by_id, rid, lid);
+            let l_neighbor_count = add_neighbor(tile_by_id, lid, rid);
+            let r_neighbor_count = add_neighbor(tile_by_id, rid, lid);
             border_to_remove.extend([border, complement(border)]);
             if l_neighbor_count == 4 {
                 tile_id_to_remove.insert(lid);
@@ -132,23 +155,34 @@ pub fn solve(s: &str) -> u64 {
             break;
         }
     }
-    let ids: Vec<_> = tile_by_id.iter().filter_map(|(id, t)| (t.neighbors.len()==2).then(|| *id)).collect();
-    ids.into_iter().product()
 }
+
+pub fn solve_1(s: &str) -> u64 {
+    let sea_map = SeaMap::new(input_to_tiles(s));
+    sea_map
+        .tiles()
+        .filter_map(|t| (t.neighbors.len() == 2).then(|| t.id))
+        .product()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn it_works() {
-        assert_eq!(solve(SAMPLE_IN), 20899048083289)
+        assert_eq!(solve_1(SAMPLE_IN), 20899048083289)
     }
 
     #[test]
     fn test_complement() {
-        for i in 0..1024{
-            assert_eq!(i , complement(complement(i)), "test failed while computing complement {}", i)
+        for i in 0..1024 {
+            assert_eq!(
+                i,
+                complement(complement(i)),
+                "test failed while computing complement {}",
+                i
+            )
         }
-
     }
     const SAMPLE_IN: &str = r"Tile 2311:
 ..##.#..#.
