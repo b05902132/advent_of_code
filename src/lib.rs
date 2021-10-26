@@ -1,10 +1,14 @@
+use std::collections::{HashMap, HashSet};
+use std::iter;
+use std::mem;
+
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
 
-type Pixel = bool;
-type Image = Vec<Vec<Pixel>>;
-type TileId = u64;
+pub type Pixel = bool;
+pub type Image = Vec<Vec<Pixel>>;
+pub type TileId = u64;
 type Border = u16;
 
 fn char_to_pixel(c: char) -> Pixel {
@@ -19,7 +23,7 @@ fn str_to_image_row(s: &str) -> Vec<Pixel> {
     s.chars().map(char_to_pixel).collect()
 }
 
-fn strs_to_image<'a>(s: impl IntoIterator<Item = &'a str>) -> Image {
+pub fn strs_to_image<'a>(s: impl IntoIterator<Item = &'a str>) -> Image {
     s.into_iter().map(str_to_image_row).collect()
 }
 
@@ -33,12 +37,75 @@ fn bools_to_border(it: impl IntoIterator<Item = bool>) -> Border {
     })
 }
 
+pub fn flip_image(image: &mut Image) {
+    image.reverse()
+}
+
+pub fn rotate_image(image: &mut Image) {
+    let mut rows = mem::take(image);
+    rows.reverse();
+    let new_image = iter::from_fn({
+        let mut row_fronts: Vec<_> = rows.into_iter().map(|r| r.into_iter()).collect();
+        move || row_fronts.iter_mut().map(|it| it.next()).collect()
+    })
+    .collect();
+    *image = new_image;
+}
+
+pub fn remove_subimage(image: &mut Image, target: &Image) {
+    fn size_check(image: &Image) {
+        assert!(image.iter().map(|x| x.len()).all_equal())
+    }
+    size_check(image);
+    size_check(target);
+    fn run(image: &mut Image, target: &Image) {
+        let ih = image.len();
+        if ih == 0 {
+            return;
+        }
+        let iw = image[0].len();
+        let th = target.len();
+        if th == 0 {
+            return;
+        }
+        let tw = target[0].len();
+        let true_loc = || {
+            (0..th)
+                .cartesian_product(0..tw)
+                .filter(|&(p, q)| target[p][q])
+        };
+        for (i, j) in (0..ih - th).cartesian_product(0..iw - tw) {
+            if true_loc().map(|(p, q)| image[i + p][j + q]).all(|x| x) {
+                true_loc().for_each(|(p, q)| image[i + p][j + q] = false);
+            }
+        }
+    }
+    for _ in 0..4 {
+        run(image, target);
+        rotate_image(image);
+    }
+    for _ in 0..4 {
+        run(image, target);
+        rotate_image(image);
+    }
+    flip_image(image);
+}
+pub fn image_string(image: &Image) -> String {
+    let mut out = String::new();
+    for row in image.iter() {
+        let row_chars = row.iter().copied().map(|p| if p { '#' } else { '.' });
+        out.extend(row_chars);
+        out.push('\n');
+    }
+    out
+}
+
 #[derive(Clone, Debug)]
 pub struct Tile {
-    id: TileId,
+    pub id: TileId,
     borders: [Border; 4],
     neighbors: [Option<TileId>; 4],
-    image: Image,
+    pub image: Image,
 }
 impl Tile {
     fn new(s: &[&str]) -> Self {
@@ -70,7 +137,7 @@ impl Tile {
     }
 
     fn flip(&mut self) {
-        self.image.reverse();
+        flip_image(&mut self.image);
         self.borders.swap(0, 2);
         self.neighbors.swap(0, 2);
         self.borders.iter_mut().for_each(|i| *i = complement(*i));
@@ -78,13 +145,7 @@ impl Tile {
 
     fn rotate(&mut self) {
         // rotate clockwise
-        use std::{iter, mem};
-        let mut rows: Vec<_> = mem::take(&mut self.image)
-            .into_iter()
-            .rev()
-            .map(|row| row.into_iter())
-            .collect();
-        self.image = iter::from_fn(move || rows.iter_mut().map(|r| r.next()).collect()).collect();
+        rotate_image(&mut self.image);
         self.borders.rotate_right(1);
         self.neighbors.rotate_right(1);
     }
@@ -139,7 +200,7 @@ fn complement(mut i: Border) -> Border {
 
 pub struct SeaMap {
     tiles: Vec<Vec<Tile>>,
-    image: Vec<Vec<bool>>,
+    pub image: Vec<Vec<bool>>,
 }
 
 impl SeaMap {
@@ -236,14 +297,8 @@ impl SeaMap {
         })
     }
 
-    pub fn image_string(&self) -> String {
-        let mut out = String::new();
-        for row in self.image.iter() {
-            let row_chars = row.iter().copied().map(|p| if p { '#' } else { '.' });
-            out.extend(row_chars);
-            out.push('\n');
-        }
-        out
+    pub fn image(&self) -> &Image {
+        &self.image
     }
 }
 
@@ -322,6 +377,33 @@ mod tests {
     #[test]
     fn it_works() {
         assert_eq!(solve_1(SAMPLE_IN), 20899048083289)
+    }
+
+    #[test]
+    fn test_run_2() {
+        const MONSTER: &str = r"                  # 
+#    ##    ##    ###
+ #  #  #  #  #  #   ";
+        let monster: Image = MONSTER
+            .lines()
+            .map(|s| {
+                s.chars()
+                    .map(|c| if c == '#' { true } else { false })
+                    .collect()
+            })
+            .collect();
+        let mut sea_map = SeaMap::from_str(SAMPLE_IN);
+        remove_subimage(&mut sea_map.image, &monster);
+        assert_eq!(
+            sea_map
+                .image
+                .iter()
+                .flatten()
+                .copied()
+                .filter(|&x| x)
+                .count(),
+            273
+        );
     }
 
     #[test]
@@ -415,7 +497,7 @@ mod tests {
     #[test]
     fn test_combine_image() {
         let x = SeaMap::from_str(SAMPLE_IN);
-        print!("{}", x.image_string())
+        print!("{}", image_string(&x.image))
     }
     const SAMPLE_IN: &str = r"Tile 2311:
 ..##.#..#.
