@@ -84,11 +84,11 @@ pub fn remove_subimage(image: &mut Image, target: &Image) {
         run(image, target);
         rotate_image(image);
     }
+    flip_image(image);
     for _ in 0..4 {
         run(image, target);
         rotate_image(image);
     }
-    flip_image(image);
 }
 pub fn image_string(image: &Image) -> String {
     let mut out = String::new();
