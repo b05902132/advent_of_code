@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, BTreeMap};
 
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -34,8 +34,52 @@ impl std::str::FromStr for Food {
     }
 }
 
+pub fn q1<'a>(strings: impl IntoIterator<Item = &'a str>) -> (usize, BTreeMap<Allergen, Ingredient>) {
+    use std::collections::hash_map::Entry as MapEntry;
+    let mut undetermined: HashMap<Ingredient, usize> = HashMap::new();
+    let mut allergen_to_ingredients: HashMap<Allergen, HashSet<Ingredient>> = HashMap::new();
+    let mut dangerous_ingredients : BTreeMap<Allergen, Ingredient> = BTreeMap::new();
+    for food in strings.into_iter().map(|s| s.parse::<Food>().unwrap()) {
+        let allergens = food.allergens;
+        let ingredients = food.ingredients;
+        for allergen in allergens {
+            match allergen_to_ingredients.entry(allergen) {
+                MapEntry::Occupied(mut item) => {
+                    let ingredient_set = item.get_mut();
+                    *ingredient_set = ingredient_set.intersection(&ingredients).cloned().collect();
+                }
+                MapEntry::Vacant(v) => {
+                    v.insert(ingredients.clone());
+                }
+            }
+        }
+        for ingredient in ingredients {
+            *undetermined.entry(ingredient).or_insert(0) += 1;
+        }
+    }
+    while !allergen_to_ingredients.is_empty() {
+        let (allergen, _) = allergen_to_ingredients
+            .iter()
+            .find(|(_allergen, ingredients)| ingredients.len() == 1)
+            .unwrap();
+        let allergen = allergen.clone();
+        let (allergen, ingredient) = allergen_to_ingredients.remove_entry(&allergen).unwrap();
+        let ingredient = ingredient.into_iter().next().unwrap();
+        for i_set in allergen_to_ingredients.values_mut() {
+            i_set.remove(&ingredient);
+        }
+        undetermined.remove(&ingredient);
+        dangerous_ingredients.insert(allergen, ingredient);
+    }
+    return (undetermined.values().sum(), dangerous_ingredients);
+}
+
 #[cfg(test)]
 mod test {
+    const RECEIPT: &str = "mxmxvkd kfcds sqjhc nhms (contains dairy, fish)
+trh fvjkl sbzzf mxmxvkd (contains dairy)
+sqjhc fvjkl (contains soy)
+sqjhc mxmxvkd sbzzf (contains fish)";
     use super::*;
     #[test]
     fn test_parse_food() {
@@ -55,5 +99,9 @@ mod test {
                 .map(|s| s.to_string())
                 .collect()
         )
+    }
+    #[test]
+    fn test_q1() {
+        assert_eq!(q1(RECEIPT.lines()), 5);
     }
 }
