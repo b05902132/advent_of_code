@@ -31,8 +31,10 @@ mod parse {
         combinator::map,
         multi::separated_list0,
         sequence::{delimited, pair, separated_pair, terminated},
-        IResult,
+        Finish, IResult,
     };
+
+    type ParseResult<'a, T> = Result<T, nom::error::Error<String>>;
 
     fn integer(s: &str) -> IResult<&str, Signal> {
         map(i32, Signal::Integer)(s)
@@ -45,11 +47,17 @@ mod parse {
         )(s)
     }
 
-    pub(super) fn signal(s: &str) -> IResult<&str, Signal> {
+    fn signal(s: &str) -> IResult<&str, Signal> {
         alt((integer, list))(s)
     }
 
-    pub(super) fn parse(s: &str) -> IResult<&str, Vec<(Signal, Signal)>> {
+    pub(super) fn parse_signal(s: &str) -> ParseResult<Signal> {
+        signal(s)
+            .map_err(|e| e.to_owned())
+            .finish()
+            .map(|(_, out)| out)
+    }
+    pub(super) fn parse(s: &str) -> ParseResult<Vec<(Signal, Signal)>> {
         terminated(
             separated_list0(
                 pair(newline, newline),
@@ -57,12 +65,33 @@ mod parse {
             ),
             multispace0,
         )(s)
+        .map_err(|e| e.to_owned())
+        .finish()
+        .map(|(_, out)| out)
+    }
+}
+
+mod my_parse {
+    use super::Signal;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("Parse Error")]
+    pub struct ParseError;
+
+    pub type ParseResult<T> = Result<T, ParseError>;
+
+    pub(super) fn parse_signal(s: &str) -> ParseResult<Signal> {
+        todo!()
+    }
+
+    pub(super) fn parse(s: &str) -> ParseResult<Vec<(Signal, Signal)>> {
+        todo!()
     }
 }
 
 fn main() -> anyhow::Result<()> {
     let input = std::io::read_to_string(std::io::stdin())?;
-    let (_, input) = parse::parse(input.as_str()).unwrap();
+    let input = parse::parse(input.as_str())?;
 
     println!(
         "q1: {}",
@@ -72,10 +101,7 @@ fn main() -> anyhow::Result<()> {
             .filter_map(|((x, y), i)| (x <= y).then_some(i))
             .sum::<usize>()
     );
-    let sentinels = [
-        parse::signal("[[2]]").unwrap().1,
-        parse::signal("[[6]]").unwrap().1,
-    ];
+    let sentinels = [parse::parse_signal("[[2]]")?, parse::parse_signal("[[6]]")?];
     let mut input = input
         .into_iter()
         .flat_map(|(x, y)| [x, y])
