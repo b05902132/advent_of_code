@@ -188,8 +188,8 @@ mod test_interval {
     #[test]
     fn disjoint() {
         let left = (1, 2);
-        let right = (3, 4);
-        let target = Intervals::from_iter([(1, 2), (3, 4)]);
+        let right = (5, 6);
+        let target = Intervals::from_iter([(1, 2), (5, 6)]);
         {
             let mut obj = Intervals::new();
             obj.insert(left);
